@@ -1,11 +1,22 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Item from '@/lib/models/Item';
 import IssuedItem from '@/lib/models/IssuedItem';
+import { verifyAuth } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await dbConnect();
+    
+    // Get user auth info
+    const auth = await verifyAuth(req);
+    
+    let query: any = {};
+    
+    // If user is not admin, filter by their location
+    if (auth && !auth.isAdmin) {
+      query.warehouseName = auth.location;
+    }
     
     const [
       totalItems,
@@ -14,15 +25,35 @@ export async function GET() {
       outOfStockItems,
       totalIssuedRecords,
       activeIssues,
-      items
+      items,
+      issuedItemsValue
     ] = await Promise.all([
-      Item.countDocuments(),
-      Item.aggregate([{ $group: { _id: null, total: { $sum: '$quantity' } } }]),
-      Item.countDocuments({ status: 'Low Stock' }),
-      Item.countDocuments({ status: 'Out of Stock' }),
+      Item.countDocuments(query),
+      Item.aggregate([{ $match: query }, { $group: { _id: null, total: { $sum: '$quantity' } } }]),
+      Item.countDocuments({ ...query, status: 'Low Stock' }),
+      Item.countDocuments({ ...query, status: 'Out of Stock' }),
       IssuedItem.countDocuments(),
-      IssuedItem.countDocuments({ status: 'Active' }),
-      Item.aggregate([{ $group: { _id: null, totalValue: { $sum: '$totalPrice' } } }])
+      IssuedItem.countDocuments({ approvalStatus: 'Pending' }),
+      Item.aggregate([{ $match: query }, { $group: { _id: null, totalValue: { $sum: '$totalPrice' } } }]),
+      IssuedItem.aggregate([
+        { 
+          $lookup: {
+            from: 'items',
+            localField: 'itemId',
+            foreignField: '_id',
+            as: 'itemDetails'
+          }
+        },
+        { $unwind: '$itemDetails' },
+        {
+          $group: {
+            _id: null,
+            totalIssuedValue: {
+              $sum: { $multiply: ['$issuedQuantity', '$itemDetails.unitPrice'] }
+            }
+          }
+        }
+      ])
     ]);
 
     return NextResponse.json({
@@ -32,7 +63,8 @@ export async function GET() {
       lowStockItems,
       outOfStockItems,
       totalIssuedRecords,
-      activeIssues
+      activeIssues,
+      totalIssuedValue: issuedItemsValue[0]?.totalIssuedValue || 0
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 });

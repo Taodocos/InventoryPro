@@ -29,6 +29,7 @@ import {
   AttachMoney as MoneyIcon,
   LocalShipping as ShippingIcon,
 } from '@mui/icons-material';
+import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/app/components/Sidebar';
@@ -41,6 +42,7 @@ interface Stats {
   outOfStockItems: number;
   totalIssuedRecords: number;
   activeIssues: number;
+  totalIssuedValue: number;
 }
 
 interface RecentItem {
@@ -82,6 +84,16 @@ interface ExpiringSummary {
   warning: number;
 }
 
+interface LocationStats {
+  _id: string;
+  totalItems: number;
+  totalQuantity: number;
+  totalValue: number;
+  inStock: number;
+  lowStock: number;
+  outOfStock: number;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -90,6 +102,9 @@ export default function Dashboard() {
   const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
   const [expiringSummary, setExpiringSummary] = useState<ExpiringSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [itemStatusData, setItemStatusData] = useState<any[]>([]);
+  const [approvalStatusData, setApprovalStatusData] = useState<any[]>([]);
+  const [locationStats, setLocationStats] = useState<LocationStats[]>([]);
 
   useEffect(() => {
     checkAuth();
@@ -111,23 +126,43 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [statsRes, itemsRes, issuesRes, expiringRes] = await Promise.all([
+      const [statsRes, itemsRes, issuesRes, expiringRes, locationRes] = await Promise.all([
         fetch('/api/stats'),
         fetch('/api/items'),
         fetch('/api/issues'),
         fetch('/api/items/expiring'),
+        fetch('/api/stats/by-location'),
       ]);
 
       const statsData = await statsRes.json();
       const itemsData = await itemsRes.json();
       const issuesData = await issuesRes.json();
       const expiringData = await expiringRes.json();
+      const locationData = await locationRes.json();
 
       setStats(statsData);
       setRecentItems(itemsData.slice(0, 5));
       setRecentIssues(issuesData.slice(0, 5));
       setExpiringItems(expiringData.items || []);
       setExpiringSummary(expiringData.summary || null);
+      setLocationStats(locationData);
+
+      // Calculate item status data for pie chart
+      const inStockCount = statsData.totalItems - statsData.lowStockItems - statsData.outOfStockItems;
+      setItemStatusData([
+        { name: 'In Stock', value: inStockCount, color: '#10b981' },
+        { name: 'Low Stock', value: statsData.lowStockItems, color: '#f59e0b' },
+        { name: 'Out of Stock', value: statsData.outOfStockItems, color: '#ef4444' },
+      ]);
+
+      // Calculate approval status data for pie chart
+      const approvedCount = statsData.totalIssuedRecords - statsData.activeIssues - (issuesData.filter((i: any) => i.approvalStatus === 'Rejected').length || 0);
+      const rejectedCount = issuesData.filter((i: any) => i.approvalStatus === 'Rejected').length || 0;
+      setApprovalStatusData([
+        { name: 'Pending', value: statsData.activeIssues, color: '#f59e0b' },
+        { name: 'Approved', value: approvedCount, color: '#10b981' },
+        { name: 'Rejected', value: rejectedCount, color: '#ef4444' },
+      ]);
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
     } finally {
@@ -255,22 +290,201 @@ export default function Dashboard() {
                   <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#0f172a' }}>
                     {loading ? <Skeleton width={40} /> : stats?.activeIssues || 0}
                   </Typography>
-                  <Typography variant="body2" color="#64748b">Active Issues</Typography>
+                  <Typography variant="body2" color="#64748b">Pending Approvals</Typography>
                 </Box>
               </Paper>
             </Grid>
             <Grid size={{ xs: 12, md: 4 }}>
               <Paper sx={{ p: 3, borderRadius: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Avatar sx={{ bgcolor: '#fee2e2', width: 48, height: 48 }}>
-                  <WarningIcon sx={{ color: '#ef4444' }} />
+                  <MoneyIcon sx={{ color: '#ef4444' }} />
                 </Avatar>
                 <Box>
                   <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#0f172a' }}>
-                    {loading ? <Skeleton width={40} /> : stats?.outOfStockItems || 0}
+                    ${loading ? <Skeleton width={60} /> : (stats?.totalIssuedValue || 0).toLocaleString()}
                   </Typography>
-                  <Typography variant="body2" color="#64748b">Out of Stock</Typography>
+                  <Typography variant="body2" color="#64748b">Total Issued Value</Typography>
                 </Box>
               </Paper>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card sx={{ borderRadius: 4, p: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>Item Status Distribution</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                    <Skeleton variant="circular" width={200} height={200} />
+                  </Box>
+                ) : itemStatusData.length > 0 && itemStatusData.some(d => d.value > 0) ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={itemStatusData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value }) => `${name}: ${value}`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {itemStatusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => `${value} items`} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, color: '#64748b' }}>
+                    <Typography>No item data available</Typography>
+                  </Box>
+                )}
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card sx={{ borderRadius: 4, p: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>Approval Status Distribution</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                    <Skeleton variant="circular" width={200} height={200} />
+                  </Box>
+                ) : approvalStatusData.length > 0 && approvalStatusData.some(d => d.value > 0) ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={approvalStatusData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value }) => `${name}: ${value}`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {approvalStatusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => `${value} items`} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, color: '#64748b' }}>
+                    <Typography>No approval data available</Typography>
+                  </Box>
+                )}
+              </Card>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid size={{ xs: 12 }}>
+              <Card sx={{ borderRadius: 4, p: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>Inventory by Location</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                    <Skeleton variant="rectangular" width="100%" height={300} />
+                  </Box>
+                ) : locationStats.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={locationStats}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="_id" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="totalItems" fill="#3b82f6" name="Total Items" />
+                      <Bar dataKey="inStock" fill="#10b981" name="In Stock" />
+                      <Bar dataKey="lowStock" fill="#f59e0b" name="Low Stock" />
+                      <Bar dataKey="outOfStock" fill="#ef4444" name="Out of Stock" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, color: '#64748b' }}>
+                    <Typography>No location data available</Typography>
+                  </Box>
+                )}
+              </Card>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card sx={{ borderRadius: 4, p: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>Total Value by Location</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                    <Skeleton variant="circular" width={200} height={200} />
+                  </Box>
+                ) : locationStats.length > 0 && locationStats.some(l => l.totalValue > 0) ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={locationStats.map(loc => ({ name: loc._id, value: loc.totalValue }))}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value }) => `${name}: ${value.toLocaleString()}`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {locationStats.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'][index % 6]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => `${(value as number).toLocaleString()}`} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, color: '#64748b' }}>
+                    <Typography>No value data available</Typography>
+                  </Box>
+                )}
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card sx={{ borderRadius: 4, p: 3 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>Total Quantity by Location</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                    <Skeleton variant="circular" width={200} height={200} />
+                  </Box>
+                ) : locationStats.length > 0 && locationStats.some(l => l.totalQuantity > 0) ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={locationStats.map(loc => ({ name: loc._id, value: loc.totalQuantity }))}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value }) => `${name}: ${value}`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {locationStats.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'][index % 6]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => `${value} units`} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, color: '#64748b' }}>
+                    <Typography>No quantity data available</Typography>
+                  </Box>
+                )}
+              </Card>
             </Grid>
           </Grid>
 

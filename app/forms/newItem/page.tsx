@@ -64,6 +64,7 @@ interface Item {
   category: string;
   description?: string;
   quantity: number;
+  initialQuantity?: number;
   unitMeasurement: string;
   unitPrice: number;
   totalPrice: number;
@@ -75,8 +76,25 @@ interface Item {
   warehouseName?: string;
   locationCode?: string;
   expiryDate?: string;
+  recordDate?: string;
+  manufacturerInfo?: string;
+  batchNumber?: string;
   status: string;
   createdAt: string;
+}
+
+interface Location {
+  _id: string;
+  name: string;
+  code: string;
+  description?: string;
+}
+
+interface Category {
+  _id: string;
+  name: string;
+  code: string;
+  description?: string;
 }
 
 const initialFormData = {
@@ -92,10 +110,12 @@ const initialFormData = {
   supplierName: '',
   purchaseDate: '',
   purchasePrice: '',
-  totalPurchaseCost: '',
   warehouseName: '',
   locationCode: '',
   expiryDate: '',
+  recordDate: new Date().toISOString().split('T')[0],
+  manufacturerInfo: '',
+  batchNumber: '',
 };
 
 const unitMeasurements = [
@@ -106,8 +126,11 @@ const unitMeasurements = [
   'Dozen', 'Ream', 'Carton', 'Bottle', 'Tube'
 ];
 
+// categoryPrefixes will be built dynamically from database categories
+
 export default function RegisterItemPage() {
   const [items, setItems] = useState<Item[]>([]);
+  const [allItems, setAllItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -123,18 +146,75 @@ export default function RegisterItemPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuItem, setMenuItem] = useState<Item | null>(null);
+  const [nextItemNumbers, setNextItemNumbers] = useState<{ [key: string]: number }>({});
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryPrefixes, setCategoryPrefixes] = useState<{ [key: string]: string }>({});
+  const [searchTerm, setSearchTerm] = useState('');
 
   const steps = ['Item Information', 'Purchase Details', 'Storage & Location'];
 
+  // Filter items based on search term
+  const filteredItems = items.filter(item =>
+    item.itemId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.warehouseName?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   // Stats
-  const totalItems = items.length;
-  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalValue = items.reduce((sum, item) => sum + item.totalPrice, 0);
-  const lowStockCount = items.filter((item) => item.status === 'Low Stock').length;
+  const totalItems = filteredItems.length;
+  const totalQuantity = filteredItems.reduce((sum, item) => sum + item.quantity, 0);
+  const totalValue = filteredItems.reduce((sum, item) => sum + item.totalPrice, 0);
+  const lowStockCount = filteredItems.filter((item) => item.status === 'Low Stock').length;
+
+  useEffect(() => {
+    fetchLocations();
+    fetchCategories();
+  }, []);
 
   useEffect(() => {
     fetchItems();
-  }, []);
+    fetchAllItemsForIdGeneration();
+  }, [categories]);
+
+  const fetchAllItemsForIdGeneration = async () => {
+    try {
+      const response = await fetch('/api/items/all');
+      const data = await response.json();
+      setAllItems(data);
+      calculateNextItemNumbers(data);
+    } catch (err) {
+      console.error('Failed to fetch all items for ID generation:', err);
+    }
+  };
+
+  const fetchLocations = async () => {
+    try {
+      const response = await fetch('/api/locations');
+      const data = await response.json();
+      setLocations(data);
+    } catch (err) {
+      console.error('Failed to fetch locations:', err);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await fetch('/api/categories');
+      const data = await response.json();
+      setCategories(data);
+      
+      // Build categoryPrefixes map from database categories
+      const prefixes: { [key: string]: string } = {};
+      data.forEach((cat: Category) => {
+        prefixes[cat.name] = cat.code;
+      });
+      setCategoryPrefixes(prefixes);
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    }
+  };
 
   const fetchItems = async () => {
     try {
@@ -146,6 +226,68 @@ export default function RegisterItemPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateNextItemNumbers = (itemsList: Item[]) => {
+    const numbers: { [key: string]: number } = {};
+    
+    categories.forEach((category) => {
+      const itemsInCategory = itemsList.filter((item) => item.category === category.name);
+      
+      if (itemsInCategory.length === 0) {
+        numbers[category.name] = 1;
+      } else {
+        // Extract the number from the middle of the itemId (between first and second dash)
+        const maxNumber = Math.max(
+          ...itemsInCategory.map((item) => {
+            // For format like "DAB-001-", extract 001
+            const match = item.itemId.match(/^[A-Z]+-(\d+)-/);
+            return match ? parseInt(match[1]) : 0;
+          })
+        );
+        numbers[category.name] = maxNumber + 1;
+      }
+    });
+    
+    setNextItemNumbers(numbers);
+  };
+
+  const generateItemId = (category: string, itemsList?: Item[]): string => {
+    const prefix = categoryPrefixes[category];
+    if (!prefix) return '';
+    
+    // If itemsList is provided, calculate the next number from it
+    // Otherwise use the state (for real-time updates)
+    let nextNumber = 1;
+    
+    if (itemsList) {
+      const itemsInCategory = itemsList.filter((item) => item.category === category);
+      if (itemsInCategory.length > 0) {
+        const maxNumber = Math.max(
+          ...itemsInCategory.map((item) => {
+            const match = item.itemId.match(/^[A-Z]+-(\d+)-/);
+            return match ? parseInt(match[1]) : 0;
+          })
+        );
+        nextNumber = maxNumber + 1;
+      }
+    } else {
+      nextNumber = nextItemNumbers[category] || 1;
+    }
+    
+    const paddedNumber = String(nextNumber).padStart(3, '0');
+    return `${prefix}-${paddedNumber}-`;
+  };
+
+  const isStep1Valid = (): boolean => {
+    return !!(
+      formData.itemId &&
+      formData.itemName &&
+      formData.category &&
+      formData.quantity &&
+      formData.unitPrice &&
+      formData.recordedBy
+    );
   };
 
   const handleOpenDialog = (item?: Item) => {
@@ -165,10 +307,11 @@ export default function RegisterItemPage() {
         supplierName: item.supplierName || '',
         purchaseDate: item.purchaseDate ? item.purchaseDate.split('T')[0] : '',
         purchasePrice: item.purchasePrice?.toString() || '',
-        totalPurchaseCost: item.totalPurchaseCost?.toString() || '',
         warehouseName: item.warehouseName || '',
         locationCode: item.locationCode || '',
         expiryDate: item.expiryDate ? item.expiryDate.split('T')[0] : '',
+        recordDate: item.recordDate ? item.recordDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        manufacturerInfo: item.manufacturerInfo || '',
       });
     } else {
       setIsEditing(false);
@@ -216,11 +359,12 @@ export default function RegisterItemPage() {
         body: JSON.stringify({
           ...formData,
           quantity: Number(formData.quantity),
-          unitPrice: Number(formData.unitPrice),
+          initialQuantity: isEditing ? undefined : Number(formData.quantity),
+          unitPrice: Number(formData.unitPrice), 
           totalPrice: Number(formData.totalPrice),
           purchasePrice: formData.purchasePrice ? Number(formData.purchasePrice) : undefined,
-          totalPurchaseCost: formData.totalPurchaseCost ? Number(formData.totalPurchaseCost) : undefined,
           purchaseDate: formData.purchaseDate ? new Date(formData.purchaseDate) : undefined,
+          recordDate: formData.recordDate ? new Date(formData.recordDate) : new Date(),
           expiryDate: formData.expiryDate ? new Date(formData.expiryDate) : undefined,
         }),
       });
@@ -230,6 +374,7 @@ export default function RegisterItemPage() {
 
       setSuccess(isEditing ? 'Item updated successfully!' : 'Item registered successfully!');
       fetchItems();
+      fetchAllItemsForIdGeneration();
       setTimeout(() => {
         handleCloseDialog();
         setSuccess('');
@@ -239,6 +384,99 @@ export default function RegisterItemPage() {
     } finally {
       setSubmitLoading(false);
     }
+  };
+
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        
+        const itemsToImport = [];
+        let currentItems = allItems; // Use global items list
+        
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          
+          const values = lines[i].split(',').map(v => v.trim());
+          const item: any = {};
+          
+          headers.forEach((header, index) => {
+            item[header] = values[index];
+          });
+
+          // Validate required fields
+          if (!item.itemname || !item.category || !item.quantity || !item.unitprice) {
+            console.warn(`Skipping row ${i + 1}: Missing required fields`);
+            continue;
+          }
+
+          // Generate item ID using global items list for accurate sequencing
+          const itemId = generateItemId(item.category, currentItems);
+          
+          const newItem = {
+            itemId,
+            itemName: item.itemname,
+            category: item.category,
+            description: item.description || '',
+            quantity: Number(item.quantity),
+            initialQuantity: Number(item.quantity),
+            unitMeasurement: item.unitmeasurement || 'Piece',
+            unitPrice: Number(item.unitprice),
+            totalPrice: Number(item.quantity) * Number(item.unitprice),
+            recordedBy: item.recordedby || 'Import',
+            supplierName: item.suppliername || '',
+            purchaseDate: item.purchasedate ? new Date(item.purchasedate) : undefined,
+            recordDate: new Date(),
+            manufacturerInfo: item.manufacturerinfo || '',
+            warehouseName: item.warehousename || '',
+            expiryDate: item.expirydate ? new Date(item.expirydate) : undefined,
+          };
+          
+          itemsToImport.push(newItem);
+          
+          // Add to currentItems for next iteration to get correct sequence
+          currentItems = [...currentItems, { ...newItem, _id: '', createdAt: new Date().toISOString(), recordDate: new Date().toISOString().split('T')[0], status: 'In Stock' } as Item];
+        }
+
+        // Import items
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const item of itemsToImport) {
+          try {
+            const response = await fetch('/api/items', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+            });
+
+            if (response.ok) {
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch (err) {
+            failCount++;
+          }
+        }
+
+        setSuccess(`Import completed: ${successCount} items imported, ${failCount} failed`);
+        fetchItems();
+        fetchAllItemsForIdGeneration();
+        setTimeout(() => setSuccess(''), 3000);
+      } catch (err: any) {
+        setError(`Import failed: ${err.message}`);
+        setTimeout(() => setError(''), 3000);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
   };
 
   const handleDelete = async () => {
@@ -270,26 +508,57 @@ export default function RegisterItemPage() {
         return (
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Item ID / Code" name="itemId" value={formData.itemId} onChange={handleChange} fullWidth required disabled={isEditing}
-                InputProps={{ startAdornment: <InputAdornment position="start"><InventoryIcon sx={{ color: '#3b82f6' }} /></InputAdornment> }} />
+              <TextField 
+                label="Item ID / Code" 
+                name="itemId" 
+                value={formData.itemId} 
+                fullWidth 
+                required 
+                disabled
+                helperText="Auto-generated based on category"
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <InventoryIcon sx={{ color: '#3b82f6' }} />
+                      </InputAdornment>
+                    ),
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Item Name" name="itemName" value={formData.itemName} onChange={handleChange} fullWidth required />
+              <TextField 
+                label="Item Name" 
+                name="itemName" 
+                value={formData.itemName} 
+                onChange={handleChange} 
+                fullWidth 
+                required 
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <FormControl fullWidth required>
                 <InputLabel>Category</InputLabel>
-                <Select name="category" value={formData.category} onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))} label="Category">
-                  <MenuItem value="Electronics">Electronics</MenuItem>
-                  <MenuItem value="Furniture">Furniture</MenuItem>
-                  <MenuItem value="IT Equipment">IT Equipment</MenuItem>
-                  <MenuItem value="Stationery">Stationery</MenuItem>
-                  <MenuItem value="Office Supplies">Office Supplies</MenuItem>
-                  <MenuItem value="Medicine">Medicine</MenuItem>
-                  <MenuItem value="Chemicals">Chemicals</MenuItem>
-                  <MenuItem value="Food & Beverages">Food & Beverages</MenuItem>
-                  <MenuItem value="Cleaning Supplies">Cleaning Supplies</MenuItem>
-                  <MenuItem value="Other">Other</MenuItem>
+                <Select 
+                  name="category" 
+                  value={formData.category} 
+                  onChange={(e) => {
+                    const newCategory = e.target.value;
+                    const newItemId = generateItemId(newCategory, allItems);
+                    setFormData((prev) => ({ 
+                      ...prev, 
+                      category: newCategory,
+                      itemId: newItemId
+                    }));
+                  }} 
+                  label="Category"
+                >
+                  {categories.map((cat) => (
+                    <MenuItem key={cat._id} value={cat.name}>
+                      {cat.name} ({cat.code})
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -297,7 +566,20 @@ export default function RegisterItemPage() {
               <TextField label="Description" name="description" value={formData.description} onChange={handleChange} fullWidth multiline rows={2} />
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
-              <TextField label="Quantity" name="quantity" type="number" value={formData.quantity} onChange={handleChange} fullWidth required InputProps={{ inputProps: { min: 0 } }} />
+              <TextField 
+                label="Quantity" 
+                name="quantity" 
+                type="number" 
+                value={formData.quantity} 
+                onChange={handleChange} 
+                fullWidth 
+                required 
+                slotProps={{
+                  input: {
+                    inputProps: { min: 0 }
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
               <FormControl fullWidth>
@@ -308,15 +590,49 @@ export default function RegisterItemPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
-              <TextField label="Unit Price" name="unitPrice" type="number" value={formData.unitPrice} onChange={handleChange} fullWidth required
-                InputProps={{ inputProps: { min: 0, step: 0.01 }, startAdornment: <InputAdornment position="start"><MoneyIcon sx={{ color: '#f59e0b' }} /></InputAdornment> }} />
+              <TextField 
+                label="Unit Price" 
+                name="unitPrice" 
+                type="number" 
+                value={formData.unitPrice} 
+                onChange={handleChange} 
+                fullWidth 
+                required
+                slotProps={{
+                  input: {
+                    inputProps: { min: 0, step: 0.01 },
+                    startAdornment: <InputAdornment position="start"><MoneyIcon sx={{ color: '#f59e0b' }} /></InputAdornment>
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
-              <TextField label="Total Price" name="totalPrice" value={formData.totalPrice} fullWidth InputProps={{ readOnly: true }} />
+              <TextField 
+                label="Total Price" 
+                name="totalPrice" 
+                value={formData.totalPrice} 
+                fullWidth 
+                slotProps={{
+                  input: {
+                    readOnly: true
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12 }}>
-              <TextField label="Recorded By" name="recordedBy" value={formData.recordedBy} onChange={handleChange} fullWidth required
-                InputProps={{ startAdornment: <InputAdornment position="start"><PersonIcon sx={{ color: '#3b82f6' }} /></InputAdornment> }} />
+              <TextField 
+                label="Recorded By" 
+                name="recordedBy" 
+                value={formData.recordedBy} 
+                onChange={handleChange} 
+                fullWidth 
+                required
+                slotProps={{
+                  input: {
+                    startAdornment: <InputAdornment position="start"><PersonIcon sx={{ color: '#3b82f6' }} /></InputAdornment>
+                  }
+                }}
+              />
             </Grid>
           </Grid>
         );
@@ -324,22 +640,80 @@ export default function RegisterItemPage() {
         return (
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Supplier Name" name="supplierName" value={formData.supplierName} onChange={handleChange} fullWidth
-                InputProps={{ startAdornment: <InputAdornment position="start"><PurchaseIcon sx={{ color: '#3b82f6' }} /></InputAdornment> }} />
+              <TextField 
+                label="Supplier Name" 
+                name="supplierName" 
+                value={formData.supplierName} 
+                onChange={handleChange} 
+                fullWidth
+                slotProps={{
+                  input: {
+                    startAdornment: <InputAdornment position="start"><PurchaseIcon sx={{ color: '#3b82f6' }} /></InputAdornment>
+                  }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Purchase Date" name="purchaseDate" type="date" value={formData.purchaseDate} onChange={handleChange} fullWidth InputLabelProps={{ shrink: true }} />
+              <TextField 
+                label="Manufacturer Info" 
+                name="manufacturerInfo" 
+                value={formData.manufacturerInfo} 
+                onChange={handleChange} 
+                fullWidth
+                helperText="Manufacturer name or details"
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Purchase Price (per unit)" name="purchasePrice" type="number" value={formData.purchasePrice} onChange={handleChange} fullWidth
-                InputProps={{ inputProps: { min: 0, step: 0.01 } }} />
+              <TextField 
+                label="Batch Number" 
+                name="batchNumber" 
+                value={formData.batchNumber} 
+                onChange={handleChange} 
+                fullWidth
+                helperText="Batch or lot number"
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Total Purchase Cost" name="totalPurchaseCost" type="number" value={formData.totalPurchaseCost} onChange={handleChange} fullWidth />
+              <TextField 
+                label="Purchase Date" 
+                name="purchaseDate" 
+                type="date" 
+                value={formData.purchaseDate} 
+                onChange={handleChange} 
+                fullWidth 
+                slotProps={{
+                  inputLabel: { shrink: true }
+                }}
+              />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Expiry Date (Optional)" name="expiryDate" type="date" value={formData.expiryDate} onChange={handleChange} fullWidth InputLabelProps={{ shrink: true }}
-                helperText="Leave empty if item doesn't expire" />
+              <TextField 
+                label="Record Date" 
+                name="recordDate" 
+                type="date" 
+                value={formData.recordDate} 
+                onChange={handleChange} 
+                fullWidth 
+                required
+                slotProps={{
+                  inputLabel: { shrink: true }
+                }}
+                helperText="Date item was recorded in system"
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <TextField 
+                label="Expiry Date (Optional)" 
+                name="expiryDate" 
+                type="date" 
+                value={formData.expiryDate} 
+                onChange={handleChange} 
+                fullWidth 
+                slotProps={{
+                  inputLabel: { shrink: true }
+                }}
+                helperText="Leave empty if item doesn't expire" 
+              />
             </Grid>
           </Grid>
         );
@@ -347,11 +721,21 @@ export default function RegisterItemPage() {
         return (
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Store / Warehouse Name" name="warehouseName" value={formData.warehouseName} onChange={handleChange} fullWidth
-                InputProps={{ startAdornment: <InputAdornment position="start"><WarehouseIcon sx={{ color: '#3b82f6' }} /></InputAdornment> }} />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField label="Shelf / Location Code" name="locationCode" value={formData.locationCode} onChange={handleChange} fullWidth />
+              <FormControl fullWidth>
+                <InputLabel>Store / Warehouse Name</InputLabel>
+                <Select
+                  name="warehouseName"
+                  value={formData.warehouseName}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, warehouseName: e.target.value }))}
+                  label="Store / Warehouse Name"
+                >
+                  {locations.map((loc) => (
+                    <MenuItem key={loc._id} value={loc.name}>
+                      {loc.name} ({loc.code})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
           </Grid>
         );
@@ -371,10 +755,45 @@ export default function RegisterItemPage() {
               <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1e293b' }}>Inventory Items</Typography>
               <Typography variant="body1" color="#64748b">Manage your registered inventory items</Typography>
             </Box>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}
-              sx={{ bgcolor: '#001488', '&:hover': { bgcolor: '#000d5c' }, borderRadius: 2, px: 3, py: 1.5 }}>
-              Add New Item
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}
+                sx={{ bgcolor: '#001488', '&:hover': { bgcolor: '#000d5c' }, borderRadius: 2, px: 3, py: 1.5 }}>
+                Add New Item
+              </Button>
+              <Button variant="outlined" component="label" sx={{ borderRadius: 2, px: 3, py: 1.5 }}>
+                Import CSV/Excel
+                <input hidden accept=".csv,.xlsx,.xls" type="file" onChange={handleImportCSV} />
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Search Bar */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              fullWidth
+              placeholder="Search by Item Code, Name, Category, or Warehouse..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(0);
+              }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Box sx={{ color: '#64748b' }}>🔍</Box>
+                    </InputAdornment>
+                  ),
+                }
+              }}
+              sx={{
+                bgcolor: 'white',
+                borderRadius: 2,
+                '& .MuiOutlinedInput-root': {
+                  borderColor: '#e2e8f0',
+                }
+              }}
+            />
           </Box>
 
           {/* Stats Cards */}
@@ -432,10 +851,10 @@ export default function RegisterItemPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow><TableCell colSpan={8} align="center">Loading...</TableCell></TableRow>
-                  ) : items.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} align="center">No items found. Click "Add New Item" to get started.</TableCell></TableRow>
+                  ) : filteredItems.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} align="center">No items found. Try adjusting your search.</TableCell></TableRow>
                   ) : (
-                    items.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((item) => (
+                    filteredItems.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((item) => (
                       <TableRow key={item._id} hover>
                         <TableCell><Typography sx={{ fontWeight: 'bold', color: '#001488' }}>{item.itemId}</Typography></TableCell>
                         <TableCell>{item.itemName}</TableCell>
@@ -455,7 +874,7 @@ export default function RegisterItemPage() {
                 </TableBody>
               </Table>
             </TableContainer>
-            <TablePagination component="div" count={items.length} page={page} onPageChange={(e, newPage) => setPage(newPage)}
+            <TablePagination component="div" count={filteredItems.length} page={page} onPageChange={(e, newPage) => setPage(newPage)}
               rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} />
           </Paper>
 
@@ -507,7 +926,13 @@ export default function RegisterItemPage() {
                   {submitLoading ? 'Saving...' : isEditing ? 'Update Item' : 'Register Item'}
                 </Button>
               ) : (
-                <Button variant="contained" onClick={() => setActiveStep((prev) => prev + 1)}>Next</Button>
+                <Button 
+                  variant="contained" 
+                  onClick={() => setActiveStep((prev) => prev + 1)}
+                  disabled={activeStep === 0 && !isStep1Valid()}
+                >
+                  Next
+                </Button>
               )}
             </DialogActions>
           </Dialog>
@@ -533,14 +958,18 @@ export default function RegisterItemPage() {
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Item ID</Typography><Typography fontWeight="bold">{selectedItem.itemId}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Item Name</Typography><Typography fontWeight="bold">{selectedItem.itemName}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Category</Typography><Typography>{selectedItem.category}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Description</Typography><Typography>{selectedItem.description || '-'}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Quantity</Typography><Typography>{selectedItem.quantity} {selectedItem.unitMeasurement}</Typography></Grid>
-                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Unit Price</Typography><Typography>${selectedItem.unitPrice}</Typography></Grid>
-                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Total Value</Typography><Typography>${selectedItem.totalPrice}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Unit Price</Typography><Typography>${selectedItem.unitPrice.toLocaleString()}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Total Value</Typography><Typography>${selectedItem.totalPrice.toLocaleString()}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Status</Typography><Chip label={selectedItem.status} size="small" color={selectedItem.status === 'In Stock' ? 'success' : 'warning'} /></Grid>
-                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Warehouse</Typography><Typography>{selectedItem.warehouseName || '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Supplier Name</Typography><Typography>{selectedItem.supplierName || '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Purchase Date</Typography><Typography>{selectedItem.purchaseDate ? new Date(selectedItem.purchaseDate).toLocaleDateString() : '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Purchase Price</Typography><Typography>{selectedItem.purchasePrice ? `$${selectedItem.purchasePrice.toLocaleString()}` : '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Warehouse / Store</Typography><Typography>{selectedItem.warehouseName || '-'}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Expiry Date</Typography><Typography>{selectedItem.expiryDate ? new Date(selectedItem.expiryDate).toLocaleDateString() : 'N/A'}</Typography></Grid>
-                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Unit</Typography><Typography>{selectedItem.unitMeasurement}</Typography></Grid>
-                  <Grid size={{ xs: 12 }}><Typography color="textSecondary">Description</Typography><Typography>{selectedItem.description || '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Recorded By</Typography><Typography>{selectedItem.recordedBy || '-'}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Created Date</Typography><Typography>{new Date(selectedItem.createdAt).toLocaleDateString()}</Typography></Grid>
                 </Grid>
               )}
             </DialogContent>

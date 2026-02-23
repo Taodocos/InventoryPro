@@ -6,6 +6,18 @@ export interface IUser extends Document {
   email: string;
   password: string;
   isAdmin: boolean;
+  isApprover: boolean;
+  location: string;
+  permissions: {
+    canRegisterItems: boolean;
+    canIssueItems: boolean;
+    canRequestItems: boolean;
+    canViewRequests: boolean;
+    canManageLocations: boolean;
+    canManageCategories: boolean;
+    canApproveItems: boolean;
+    canViewReports: boolean;
+  };
   createdAt: Date;
   updatedAt: Date;
   comparePassword(password: string): Promise<boolean>;
@@ -17,6 +29,18 @@ const UserSchema = new Schema<IUser>(
     email: { type: String, required: true, unique: true, lowercase: true },
     password: { type: String, required: true },
     isAdmin: { type: Boolean, default: false },
+    isApprover: { type: Boolean, default: false },
+    location: { type: String, required: true },
+    permissions: {
+      canRegisterItems: { type: Boolean, default: false },
+      canIssueItems: { type: Boolean, default: false },
+      canRequestItems: { type: Boolean, default: false },
+      canViewRequests: { type: Boolean, default: false },
+      canManageLocations: { type: Boolean, default: false },
+      canManageCategories: { type: Boolean, default: false },
+      canApproveItems: { type: Boolean, default: false },
+      canViewReports: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );

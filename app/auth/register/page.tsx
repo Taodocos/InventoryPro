@@ -16,6 +16,10 @@ import {
   InputAdornment,
   Card,
   CardContent,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Person as PersonIcon,
@@ -23,6 +27,7 @@ import {
   Lock as LockIcon,
   Shield as ShieldIcon,
   ArrowBack as ArrowBackIcon,
+  LocationOn as LocationIcon,
 } from '@mui/icons-material';
 import Sidebar from '@/app/components/Sidebar';
 
@@ -32,6 +37,13 @@ interface User {
   isAdmin: boolean;
 }
 
+interface Location {
+  _id: string;
+  name: string;
+  code: string;
+  description?: string;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -39,18 +51,34 @@ export default function RegisterPage() {
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [locations, setLocations] = useState<Location[]>([]);
 
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     password: '',
     confirmPassword: '',
+    location: '',
     isAdmin: false,
+    isApprover: false,
   });
 
   useEffect(() => {
     checkAuth();
+    fetchLocations();
   }, []);
+
+  const fetchLocations = async () => {
+    try {
+      const res = await fetch('/api/locations');
+      if (res.ok) {
+        const data = await res.json();
+        setLocations(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch locations:', err);
+    }
+  };
 
   const checkAuth = async () => {
     try {
@@ -95,6 +123,11 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!formData.location) {
+      setError('Location is required');
+      return;
+    }
+
     setRegistering(true);
 
     try {
@@ -105,6 +138,7 @@ export default function RegisterPage() {
           username: formData.username,
           email: formData.email,
           password: formData.password,
+          location: formData.location,
           isAdmin: formData.isAdmin,
         }),
       });
@@ -122,7 +156,9 @@ export default function RegisterPage() {
         email: '',
         password: '',
         confirmPassword: '',
+        location: '',
         isAdmin: false,
+        isApprover: false,
       });
 
       setTimeout(() => setSuccess(''), 3000);
@@ -235,6 +271,23 @@ export default function RegisterPage() {
                   }}
                 />
 
+                <FormControl fullWidth required>
+                  <InputLabel>Location / Warehouse</InputLabel>
+                  <Select
+                    name="location"
+                    value={formData.location}
+                    onChange={(e: any) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+                    disabled={registering}
+                    label="Location / Warehouse"
+                  >
+                    {locations.map((loc) => (
+                      <MenuItem key={loc._id} value={loc.name}>
+                        {loc.name} ({loc.code})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
                 <TextField
                   fullWidth
                   label="Password"
@@ -304,6 +357,27 @@ export default function RegisterPage() {
                           </Typography>
                         </Box>
                       }
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          name="isApprover"
+                          checked={formData.isApprover}
+                          onChange={handleChange}
+                          disabled={registering}
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                            Approver User
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary">
+                            Approver users can approve issued items in their location
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ mt: 2 }}
                     />
                   </CardContent>
                 </Card>

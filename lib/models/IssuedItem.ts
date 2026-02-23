@@ -5,6 +5,7 @@ export interface IIssuedItem extends Document {
   itemCode: string;
   itemName: string;
   issuedQuantity: number;
+  unitPrice?: number;
   issuedTo: string;
   issueDate: Date;
   purpose?: string;
@@ -12,6 +13,10 @@ export interface IIssuedItem extends Document {
   issuedByUserId?: string;
   approvedBy?: string;
   approvedByUserId?: string;
+  approvalStatus: 'Pending' | 'Approved' | 'Rejected';
+  approvalDate?: Date;
+  rejectionReason?: string;
+  warehouseLocation?: string;
   dateRecorded: Date;
   signature?: string;
   status: 'Active' | 'Returned' | 'Consumed';
@@ -26,6 +31,7 @@ const IssuedItemSchema = new Schema<IIssuedItem>(
     itemCode: { type: String, required: true },
     itemName: { type: String, required: true },
     issuedQuantity: { type: Number, required: true, min: 1 },
+    unitPrice: { type: Number },
     issuedTo: { type: String, required: true },
     issueDate: { type: Date, required: true },
     purpose: { type: String },
@@ -33,6 +39,14 @@ const IssuedItemSchema = new Schema<IIssuedItem>(
     issuedByUserId: { type: String },
     approvedBy: { type: String },
     approvedByUserId: { type: String },
+    approvalStatus: { 
+      type: String, 
+      enum: ['Pending', 'Approved', 'Rejected'],
+      default: 'Pending'
+    },
+    approvalDate: { type: Date },
+    rejectionReason: { type: String },
+    warehouseLocation: { type: String },
     dateRecorded: { type: Date, default: Date.now },
     signature: { type: String },
     status: { 

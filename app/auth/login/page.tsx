@@ -317,7 +317,7 @@ export default function LoginPage() {
             {features.map((feature, index) => {
               const Icon = feature.icon;
               return (
-                <Grid item xs={12} sm={6} key={index}>
+                <Grid size={{ xs: 12, sm: 6 }} key={index}>
                   <Card
                     sx={{
                       background: 'rgba(255, 255, 255, 0.08)',

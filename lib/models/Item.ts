@@ -6,6 +6,7 @@ export interface IItem extends Document {
   category: string;
   description?: string;
   quantity: number;
+  initialQuantity: number;
   unitMeasurement: string;
   unitPrice: number;
   totalPrice: number;
@@ -18,6 +19,10 @@ export interface IItem extends Document {
   warehouseName?: string;
   locationCode?: string;
   expiryDate?: Date;
+  recordDate?: Date;
+  manufacturerInfo?: string;
+  batchNumber?: string;
+  rejectionReason?: string;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   createdAt: Date;
   updatedAt: Date;
@@ -30,6 +35,7 @@ const ItemSchema = new Schema<IItem>(
     category: { type: String, required: true },
     description: { type: String },
     quantity: { type: Number, required: true, min: 0 },
+    initialQuantity: { type: Number, required: true, min: 0 },
     unitMeasurement: { type: String, default: 'Piece' },
     unitPrice: { type: Number, required: true, min: 0 },
     totalPrice: { type: Number, required: true },
@@ -42,6 +48,10 @@ const ItemSchema = new Schema<IItem>(
     warehouseName: { type: String },
     locationCode: { type: String },
     expiryDate: { type: Date },
+    recordDate: { type: Date, default: Date.now },
+    manufacturerInfo: { type: String },
+    batchNumber: { type: String },
+    rejectionReason: { type: String },
     status: { 
       type: String, 
       enum: ['In Stock', 'Low Stock', 'Out of Stock'],
@@ -51,11 +61,18 @@ const ItemSchema = new Schema<IItem>(
   { timestamps: true }
 );
 
-// Auto-update status based on quantity
+// Auto-update status based on quantity (10% threshold for low stock)
 ItemSchema.pre('save', function(next) {
+  // If initialQuantity is not set, use current quantity as the initial quantity
+  if (!this.initialQuantity) {
+    this.initialQuantity = this.quantity;
+  }
+  
+  const lowStockThreshold = this.initialQuantity * 0.1; // 10% of initial quantity
+  
   if (this.quantity === 0) {
     this.status = 'Out of Stock';
-  } else if (this.quantity <= 5) {
+  } else if (this.quantity <= lowStockThreshold) {
     this.status = 'Low Stock';
   } else {
     this.status = 'In Stock';

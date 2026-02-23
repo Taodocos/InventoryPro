@@ -5,6 +5,8 @@ export interface AuthPayload {
   userId: string;
   username: string;
   isAdmin: boolean;
+  isApprover: boolean;
+  location: string;
 }
 
 export async function verifyAuth(req: NextRequest): Promise<AuthPayload | null> {

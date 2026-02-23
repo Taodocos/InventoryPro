@@ -20,6 +20,7 @@ import {
   TableHead,
   TableRow,
   TablePagination,
+  MenuItem,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -35,9 +36,16 @@ interface RegisteredItem {
   itemName: string;
   category: string;
   quantity: number;
+  initialQuantity: number;
   unitPrice: number;
   totalPrice: number;
   warehouseName?: string;
+  recordedBy?: string;
+  supplierName?: string;
+  purchaseDate?: string;
+  expiryDate?: string;
+  recordDate?: string;
+  manufacturerInfo?: string;
   status: string;
   updatedAt: string;
 }
@@ -48,6 +56,9 @@ export default function RegisteredItemsReport() {
   const [filteredItems, setFilteredItems] = useState<RegisteredItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('itemId');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
@@ -56,15 +67,38 @@ export default function RegisteredItemsReport() {
   }, []);
 
   useEffect(() => {
-    const filtered = items.filter(
+    let filtered = items.filter(
       (item) =>
         item.itemName.toLowerCase().includes(search.toLowerCase()) ||
         item.itemId.toLowerCase().includes(search.toLowerCase()) ||
-        item.category.toLowerCase().includes(search.toLowerCase())
+        item.category.toLowerCase().includes(search.toLowerCase()) ||
+        (item.warehouseName && item.warehouseName.toLowerCase().includes(search.toLowerCase())) ||
+        (item.recordedBy && item.recordedBy.toLowerCase().includes(search.toLowerCase()))
     );
+
+    // Filter by status
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter((item) => item.status === filterStatus);
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      let aVal: any = a[sortBy as keyof RegisteredItem];
+      let bVal: any = b[sortBy as keyof RegisteredItem];
+
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = (bVal as string).toLowerCase();
+      }
+
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
     setFilteredItems(filtered);
     setPage(0);
-  }, [search, items]);
+  }, [search, items, sortBy, sortOrder, filterStatus]);
 
   const fetchItems = async () => {
     try {
@@ -84,8 +118,12 @@ export default function RegisteredItemsReport() {
   const lowStockItems = items.filter((item) => item.status === 'Low Stock').length;
 
   const handleExportCSV = () => {
-    const headers = ['Item Code', 'Item Name', 'Category', 'Quantity', 'Unit Price', 'Total Value', 'Status'];
-    const rows = filteredItems.map((item) => [item.itemId, item.itemName, item.category, item.quantity, item.unitPrice, item.totalPrice, item.status]);
+    const headers = ['Item Code', 'Item Name', 'Category', 'Quantity', 'Unit Price', 'Total Value', 'Location', 'Recorded By', 'Supplier', 'Record Date', 'Status'];
+    const rows = filteredItems.map((item) => [
+      item.itemId, item.itemName, item.category, item.quantity, item.unitPrice, item.totalPrice, 
+      item.warehouseName || '-', item.recordedBy || '-', item.supplierName || '-',
+      item.recordDate ? new Date(item.recordDate).toLocaleDateString() : '-', item.status
+    ]);
     const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -148,11 +186,39 @@ export default function RegisteredItemsReport() {
             </Grid>
           </Grid>
 
-          {/* Search */}
-          <Paper sx={{ p: 2, mb: 3, borderRadius: 3 }}>
-            <TextField fullWidth placeholder="Search by name, code, or category..." value={search} onChange={(e) => setSearch(e.target.value)}
-              InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+          {/* Search and Filters */}
+          <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <TextField fullWidth placeholder="Search by name, code, category, location, or recorded by..." value={search} onChange={(e) => setSearch(e.target.value)}
+                  InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                <TextField select fullWidth label="Sort By" value={sortBy} onChange={(e) => setSortBy(e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                  <MenuItem value="itemId">Item Code</MenuItem>
+                  <MenuItem value="itemName">Item Name</MenuItem>
+                  <MenuItem value="category">Category</MenuItem>
+                  <MenuItem value="quantity">Quantity</MenuItem>
+                  <MenuItem value="totalPrice">Total Value</MenuItem>
+                  <MenuItem value="warehouseName">Location</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                <TextField select fullWidth label="Order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                  <MenuItem value="asc">Ascending</MenuItem>
+                  <MenuItem value="desc">Descending</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                <TextField select fullWidth label="Status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="In Stock">In Stock</MenuItem>
+                  <MenuItem value="Low Stock">Low Stock</MenuItem>
+                  <MenuItem value="Out of Stock">Out of Stock</MenuItem>
+                </TextField>
+              </Grid>
+            </Grid>
           </Paper>
 
           {/* Table */}
@@ -168,14 +234,17 @@ export default function RegisteredItemsReport() {
                     <TableCell sx={{ fontWeight: 'bold' }} align="right">Unit Price</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }} align="right">Total Value</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Location</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Recorded By</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Supplier</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Record Date</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={8} align="center">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={11} align="center">Loading...</TableCell></TableRow>
                   ) : filteredItems.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} align="center">No items found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={11} align="center">No items found</TableCell></TableRow>
                   ) : (
                     filteredItems.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((item) => (
                       <TableRow key={item._id} hover>
@@ -186,6 +255,9 @@ export default function RegisteredItemsReport() {
                         <TableCell align="right">${item.unitPrice.toLocaleString()}</TableCell>
                         <TableCell align="right"><Typography sx={{ fontWeight: 'bold', color: '#10b981' }}>${item.totalPrice.toLocaleString()}</Typography></TableCell>
                         <TableCell>{item.warehouseName || '-'}</TableCell>
+                        <TableCell>{item.recordedBy || '-'}</TableCell>
+                        <TableCell>{item.supplierName || '-'}</TableCell>
+                        <TableCell>{item.recordDate ? new Date(item.recordDate).toLocaleDateString() : '-'}</TableCell>
                         <TableCell>
                           <Chip label={item.status} size="small" color={item.status === 'In Stock' ? 'success' : item.status === 'Low Stock' ? 'warning' : 'error'} />
                         </TableCell>

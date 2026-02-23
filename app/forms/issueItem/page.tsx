@@ -56,6 +56,7 @@ interface AvailableItem {
   itemName: string;
   category: string;
   quantity: number;
+  unitPrice: number;
 }
 
 interface IssuedItem {
@@ -63,11 +64,16 @@ interface IssuedItem {
   itemCode: string;
   itemName: string;
   issuedQuantity: number;
+  unitPrice?: number;
   issuedTo: string;
   issueDate: string;
   purpose?: string;
   issuedBy: string;
   approvedBy?: string;
+  approvalStatus?: string;
+  approvalDate?: string;
+  rejectionReason?: string;
+  warehouseLocation?: string;
   status: string;
   createdAt: string;
 }
@@ -87,6 +93,7 @@ export default function IssueItemPage() {
   const [issuedItems, setIssuedItems] = useState<IssuedItem[]>([]);
   const [availableItems, setAvailableItems] = useState<AvailableItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<IssuedItem | null>(null);
@@ -99,18 +106,43 @@ export default function IssueItemPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuItem, setMenuItem] = useState<IssuedItem | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<IssuedItem | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
+  // Filter issued items based on search term
+  const filteredIssuedItems = issuedItems.filter(item =>
+    item.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.itemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.issuedTo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.purpose?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   // Stats
-  const totalIssued = issuedItems.length;
-  const activeIssues = issuedItems.filter((item) => item.status === 'Active').length;
-  const totalQuantityIssued = issuedItems.reduce((sum, item) => sum + item.issuedQuantity, 0);
-  const returnedItems = issuedItems.filter((item) => item.status === 'Returned').length;
+  const totalIssued = filteredIssuedItems.length;
+  const pendingApprovals = filteredIssuedItems.filter((item) => item.approvalStatus === 'Pending').length;
+  const totalQuantityIssued = filteredIssuedItems.reduce((sum, item) => sum + item.issuedQuantity, 0);
+  const approvedItems = filteredIssuedItems.filter((item) => item.approvalStatus === 'Approved').length;
 
   useEffect(() => {
     fetchIssuedItems();
     fetchAvailableItems();
+    fetchCurrentUser();
   }, []);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+      }
+    } catch (err) {
+      console.error('Failed to fetch current user:', err);
+    }
+  };
 
   const fetchIssuedItems = async () => {
     try {
@@ -147,6 +179,8 @@ export default function IssueItemPage() {
     setFormData(initialFormData);
     setSelectedAvailableItem(null);
     setError('');
+    setIsEditing(false);
+    setEditingItem(null);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,21 +193,29 @@ export default function IssueItemPage() {
     setError('');
 
     try {
+      const payload = {
+        itemCode: formData.itemCode,
+        issuedQuantity: Number(formData.issuedQuantity),
+        issuedTo: formData.issuedTo,
+        issueDate: formData.issueDate,
+        purpose: formData.purpose,
+        issuedBy: formData.issuedBy || currentUser?.username || 'Unknown',
+        approvedBy: formData.approvedBy,
+        unitPrice: selectedAvailableItem?.unitPrice || 0,
+        dateRecorded: new Date().toISOString(),
+      };
+
+      console.log('Submitting issue with payload:', payload);
+
       const response = await fetch('/api/issues', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemCode: formData.itemCode,
-          issuedQuantity: Number(formData.issuedQuantity),
-          issuedTo: formData.issuedTo,
-          issueDate: formData.issueDate,
-          purpose: formData.purpose,
-          issuedBy: formData.issuedBy,
-          approvedBy: formData.approvedBy,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
+      console.log('Issue response:', data);
+
       if (!response.ok) throw new Error(data.error);
 
       setSuccess('Item issued successfully!');
@@ -184,6 +226,7 @@ export default function IssueItemPage() {
         setSuccess('');
       }, 1500);
     } catch (err: any) {
+      console.error('Issue submission error:', err);
       setError(err.message);
     } finally {
       setSubmitLoading(false);
@@ -200,18 +243,97 @@ export default function IssueItemPage() {
     setMenuItem(null);
   };
 
-  const handleStatusChange = async (item: IssuedItem, newStatus: string) => {
+  const handleEditItem = (item: IssuedItem) => {
+    if (item.approvalStatus !== 'Pending') {
+      setError('Only pending items can be edited');
+      return;
+    }
+    setEditingItem(item);
+    setFormData({
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      issuedQuantity: item.issuedQuantity.toString(),
+      issuedTo: item.issuedTo,
+      issueDate: item.issueDate,
+      purpose: item.purpose || '',
+      issuedBy: item.issuedBy,
+      approvedBy: item.approvedBy || '',
+    });
+    setIsEditing(true);
+    setDialogOpen(true);
+    handleMenuClose();
+  };
+
+  const handleDeleteItem = (item: IssuedItem) => {
+    if (item.approvalStatus !== 'Pending') {
+      setError('Only pending items can be deleted');
+      return;
+    }
+    setEditingItem(item);
+    setDeleteDialogOpen(true);
+    handleMenuClose();
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!editingItem) return;
+    
     try {
-      const response = await fetch(`/api/issues/${item._id}`, {
+      const response = await fetch(`/api/issues/${editingItem._id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete item');
+      
+      setSuccess('Item deleted successfully!');
+      setDeleteDialogOpen(false);
+      setEditingItem(null);
+      fetchIssuedItems();
+      fetchAvailableItems();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleUpdateItem = async () => {
+    if (!editingItem) return;
+    
+    setSubmitLoading(true);
+    setError('');
+
+    try {
+      const payload = {
+        issuedQuantity: Number(formData.issuedQuantity),
+        issuedTo: formData.issuedTo,
+        issueDate: formData.issueDate,
+        purpose: formData.purpose,
+        issuedBy: formData.issuedBy,
+        approvedBy: formData.approvedBy,
+      };
+
+      const response = await fetch(`/api/issues/${editingItem._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error('Failed to update status');
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error);
+
+      setSuccess('Item updated successfully!');
+      setIsEditing(false);
+      setEditingItem(null);
       fetchIssuedItems();
-      handleMenuClose();
-    } catch (err) {
-      console.error('Status update failed:', err);
+      fetchAvailableItems();
+      setTimeout(() => {
+        handleCloseDialog();
+        setSuccess('');
+      }, 1500);
+    } catch (err: any) {
+      console.error('Update error:', err);
+      setError(err.message);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -285,6 +407,35 @@ export default function IssueItemPage() {
             </Button>
           </Box>
 
+          {/* Search Bar */}
+          <Box sx={{ mb: 4 }}>
+            <TextField
+              fullWidth
+              placeholder="Search by Item Code, Name, Issued To, or Purpose..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(0);
+              }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Box sx={{ color: '#64748b' }}>🔍</Box>
+                    </InputAdornment>
+                  ),
+                }
+              }}
+              sx={{
+                bgcolor: 'white',
+                borderRadius: 2,
+                '& .MuiOutlinedInput-root': {
+                  borderColor: '#e2e8f0',
+                }
+              }}
+            />
+          </Box>
+
           {/* Stats Cards */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -298,16 +449,16 @@ export default function IssueItemPage() {
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Card sx={{ borderRadius: 3, bgcolor: '#1a3a9e', color: 'white' }}>
                 <CardContent>
-                  <Typography variant="h6" sx={{ opacity: 0.9 }}>Active Issues</Typography>
-                  <Typography variant="h3" sx={{ fontWeight: 'bold' }}>{activeIssues}</Typography>
+                  <Typography variant="h6" sx={{ opacity: 0.9 }}>Pending Approvals</Typography>
+                  <Typography variant="h3" sx={{ fontWeight: 'bold' }}>{pendingApprovals}</Typography>
                 </CardContent>
               </Card>
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Card sx={{ borderRadius: 3, bgcolor: '#0026d4', color: 'white' }}>
                 <CardContent>
-                  <Typography variant="h6" sx={{ opacity: 0.9 }}>Returned</Typography>
-                  <Typography variant="h3" sx={{ fontWeight: 'bold' }}>{returnedItems}</Typography>
+                  <Typography variant="h6" sx={{ opacity: 0.9 }}>Approved</Typography>
+                  <Typography variant="h3" sx={{ fontWeight: 'bold' }}>{approvedItems}</Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -331,6 +482,7 @@ export default function IssueItemPage() {
                     <TableCell sx={{ fontWeight: 'bold' }}>Item Name</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Issued To</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }} align="right">Quantity</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }} align="right">Unit Price</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Issue Date</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Issued By</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
@@ -339,20 +491,21 @@ export default function IssueItemPage() {
                 </TableHead>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={8} align="center">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} align="center">Loading...</TableCell></TableRow>
                   ) : issuedItems.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} align="center">No items issued yet. Click "Issue Item" to get started.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} align="center">No items found. Try adjusting your search.</TableCell></TableRow>
                   ) : (
-                    issuedItems.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((item) => (
+                    filteredIssuedItems.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((item) => (
                       <TableRow key={item._id} hover>
                         <TableCell><Typography sx={{ fontWeight: 'bold', color: '#3b82f6' }}>{item.itemCode}</Typography></TableCell>
                         <TableCell>{item.itemName}</TableCell>
                         <TableCell>{item.issuedTo}</TableCell>
                         <TableCell align="right"><Typography sx={{ fontWeight: 'bold' }}>{item.issuedQuantity}</Typography></TableCell>
+                        <TableCell align="right">{(item.unitPrice || 0).toLocaleString()}</TableCell>
                         <TableCell>{new Date(item.issueDate).toLocaleDateString()}</TableCell>
                         <TableCell>{item.issuedBy}</TableCell>
                         <TableCell>
-                          <Chip label={item.status} size="small" color={item.status === 'Active' ? 'warning' : item.status === 'Returned' ? 'success' : 'error'} />
+                          <Chip label={item.approvalStatus || 'Pending'} size="small" color={item.approvalStatus === 'Approved' ? 'success' : item.approvalStatus === 'Rejected' ? 'error' : 'warning'} />
                         </TableCell>
                         <TableCell align="center">
                           <IconButton size="small" onClick={(e) => handleMenuOpen(e, item)}><MoreVertIcon /></IconButton>
@@ -363,7 +516,7 @@ export default function IssueItemPage() {
                 </TableBody>
               </Table>
             </TableContainer>
-            <TablePagination component="div" count={issuedItems.length} page={page} onPageChange={(e, newPage) => setPage(newPage)}
+            <TablePagination component="div" count={filteredIssuedItems.length} page={page} onPageChange={(e, newPage) => setPage(newPage)}
               rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} />
           </Paper>
 
@@ -373,14 +526,17 @@ export default function IssueItemPage() {
               <ViewIcon sx={{ mr: 1 }} /> View Details
             </MenuItem>
             <Divider />
-            <MenuItem disabled={menuItem?.status === 'Returned'} onClick={() => { handleStatusChange(menuItem!, 'Returned'); }}>
-              <Chip label="Mark as Returned" size="small" color="success" sx={{ cursor: 'pointer' }} />
+            <MenuItem 
+              onClick={() => handleEditItem(menuItem!)}
+              disabled={menuItem?.approvalStatus !== 'Pending'}
+            >
+              Edit
             </MenuItem>
-            <MenuItem disabled={menuItem?.status === 'Consumed'} onClick={() => { handleStatusChange(menuItem!, 'Consumed'); }}>
-              <Chip label="Mark as Consumed" size="small" color="error" sx={{ cursor: 'pointer' }} />
-            </MenuItem>
-            <MenuItem disabled={menuItem?.status === 'Active'} onClick={() => { handleStatusChange(menuItem!, 'Active'); }}>
-              <Chip label="Mark as Active" size="small" color="warning" sx={{ cursor: 'pointer' }} />
+            <MenuItem 
+              onClick={() => handleDeleteItem(menuItem!)}
+              disabled={menuItem?.approvalStatus !== 'Pending'}
+            >
+              Delete
             </MenuItem>
           </Menu>
 
@@ -399,7 +555,7 @@ export default function IssueItemPage() {
             }}
           >
             <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #001488 0%, #1a3a9e 100%)', color: 'white', borderRadius: '24px 24px 0 0' }}>
-              Issue Item
+              {isEditing ? 'Edit Issue Item' : 'Issue Item'}
               <IconButton onClick={handleCloseDialog} sx={{ color: 'white' }}><CloseIcon /></IconButton>
             </DialogTitle>
             <DialogContent sx={{ pt: 3 }}>
@@ -449,9 +605,9 @@ export default function IssueItemPage() {
             </DialogContent>
             <DialogActions sx={{ p: 3, borderTop: '1px solid #e5e7eb' }}>
               <Button onClick={handleCloseDialog}>Cancel</Button>
-              <Button variant="contained" onClick={handleSubmit} disabled={submitLoading} startIcon={<SendIcon />}
+              <Button variant="contained" onClick={isEditing ? handleUpdateItem : handleSubmit} disabled={submitLoading} startIcon={<SendIcon />}
                 sx={{ background: 'linear-gradient(135deg, #001488 0%, #1a3a9e 100%)', borderRadius: 2 }}>
-                {submitLoading ? 'Issuing...' : 'Issue Item'}
+                {submitLoading ? (isEditing ? 'Updating...' : 'Issuing...') : (isEditing ? 'Update Item' : 'Issue Item')}
               </Button>
             </DialogActions>
           </Dialog>
@@ -483,16 +639,56 @@ export default function IssueItemPage() {
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Item Code</Typography><Typography fontWeight="bold">{selectedItem.itemCode}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Item Name</Typography><Typography fontWeight="bold">{selectedItem.itemName}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Quantity Issued</Typography><Typography>{selectedItem.issuedQuantity}</Typography></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Unit Price</Typography><Typography>{(selectedItem.unitPrice || 0).toLocaleString()}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Issued To</Typography><Typography>{selectedItem.issuedTo}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Issue Date</Typography><Typography>{new Date(selectedItem.issueDate).toLocaleDateString()}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Issued By</Typography><Typography>{selectedItem.issuedBy}</Typography></Grid>
                   <Grid size={{ xs: 6 }}><Typography color="textSecondary">Approved By</Typography><Typography>{selectedItem.approvedBy || '-'}</Typography></Grid>
-                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Status</Typography><Chip label={selectedItem.status} size="small" color={selectedItem.status === 'Active' ? 'warning' : 'success'} /></Grid>
+                  <Grid size={{ xs: 12 }}><Typography color="textSecondary">Approval Status</Typography><Chip label={selectedItem.approvalStatus || 'Pending'} size="small" color={selectedItem.approvalStatus === 'Approved' ? 'success' : selectedItem.approvalStatus === 'Rejected' ? 'error' : 'warning'} /></Grid>
+                  <Grid size={{ xs: 6 }}><Typography color="textSecondary">Approval Date</Typography><Typography>{selectedItem.approvalDate ? new Date(selectedItem.approvalDate).toLocaleDateString() : '-'}</Typography></Grid>
+                  {selectedItem.approvalStatus === 'Rejected' && (
+                    <Grid size={{ xs: 12 }}><Typography color="textSecondary">Rejection Reason</Typography><Typography sx={{ color: '#dc2626', fontWeight: 500 }}>{(selectedItem as any).rejectionReason || 'No reason provided'}</Typography></Grid>
+                  )}
                   <Grid size={{ xs: 12 }}><Typography color="textSecondary">Purpose</Typography><Typography>{selectedItem.purpose || '-'}</Typography></Grid>
                 </Grid>
               )}
             </DialogContent>
             <DialogActions><Button onClick={() => setViewDialogOpen(false)}>Close</Button></DialogActions>
+          </Dialog>
+
+          {/* Delete Confirmation Dialog */}
+          <Dialog
+            open={deleteDialogOpen}
+            onClose={() => setDeleteDialogOpen(false)}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle sx={{ bgcolor: '#fee2e2', color: '#dc2626', fontWeight: 'bold' }}>
+              Delete Issue Item
+            </DialogTitle>
+            <DialogContent sx={{ pt: 3 }}>
+              <Typography>
+                Are you sure you want to delete this issued item? This action cannot be undone.
+              </Typography>
+              {editingItem && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: '#f8fafc', borderRadius: 1 }}>
+                  <Typography variant="body2" color="textSecondary">Item: {editingItem.itemName}</Typography>
+                  <Typography variant="body2" color="textSecondary">Quantity: {editingItem.issuedQuantity}</Typography>
+                  <Typography variant="body2" color="textSecondary">Issued To: {editingItem.issuedTo}</Typography>
+                </Box>
+              )}
+            </DialogContent>
+            <DialogActions sx={{ p: 2 }}>
+              <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+              <Button 
+                variant="contained" 
+                color="error" 
+                onClick={handleConfirmDelete}
+                disabled={submitLoading}
+              >
+                {submitLoading ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogActions>
           </Dialog>
         </Container>
       </Box>

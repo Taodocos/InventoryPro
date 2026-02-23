@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const token = jwt.sign(
-      { userId: user._id, username: user.username, isAdmin: user.isAdmin },
+      { userId: user._id, username: user.username, isAdmin: user.isAdmin, isApprover: user.isApprover, location: user.location },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '7d' }
     );
@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
           id: user._id,
           username: user.username,
           email: user.email,
-          isAdmin: user.isAdmin
+          isAdmin: user.isAdmin,
+          isApprover: user.isApprover,
+          location: user.location
         }
       },
       { status: 200 }

@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Item from '@/lib/models/Item';
+import { verifyAuth } from '@/lib/auth';
 
 // GET all items
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await dbConnect();
-    const items = await Item.find({}).sort({ createdAt: -1 });
+    
+    // Get user auth info
+    const auth = await verifyAuth(req);
+    
+    let query: any = {};
+    
+    // If user is not admin, filter by their location
+    if (auth && !auth.isAdmin) {
+      query.warehouseName = auth.location;
+    }
+    
+    const items = await Item.find(query).sort({ createdAt: -1 });
     return NextResponse.json(items);
   } catch (error) {
     return NextResponse.json(

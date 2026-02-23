@@ -16,11 +16,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { username, email, password, isAdmin } = await req.json();
+    const { username, email, password, isAdmin, isApprover, location } = await req.json();
 
-    if (!username || !email || !password) {
+    if (!username || !email || !password || !location) {
       return NextResponse.json(
-        { error: 'Username, email, and password are required' },
+        { error: 'Username, email, password, and location are required' },
         { status: 400 }
       );
     }
@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
       username,
       email,
       password,
-      isAdmin: isAdmin || false
+      location,
+      isAdmin: isAdmin || false,
+      isApprover: isApprover || false
     });
 
     await user.save();
@@ -52,7 +54,9 @@ export async function POST(req: NextRequest) {
           id: user._id,
           username: user.username,
           email: user.email,
-          isAdmin: user.isAdmin
+          location: user.location,
+          isAdmin: user.isAdmin,
+          isApprover: user.isApprover
         }
       },
       { status: 201 }

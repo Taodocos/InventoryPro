@@ -1,176 +1,128 @@
-# User Management System Setup
+# User Management System - Complete Implementation
 
 ## Overview
-A complete user authentication and management system has been implemented with admin controls and user tracking.
+The user management system is now fully implemented with complete functionality for editing user information, managing permissions, and deleting users.
 
-## What's Been Implemented
+## Features Implemented
 
-### 1. User Model (`lib/models/User.ts`)
-- Username and email (unique)
-- Password (hashed with bcryptjs)
-- Admin flag to control access
-- Password comparison method for authentication
+### 1. User Management Page (`/admin/users`)
+- **User List**: Displays all users with search functionality
+- **Statistics Cards**: Shows total users, admins, approvers, and regular users
+- **Search Bar**: Real-time filtering by username, email, or location
+- **Edit Button**: Opens dialog to edit user information or permissions
+- **Delete Button**: Opens confirmation dialog to delete users
 
-### 2. Authentication API Endpoints
+### 2. Edit User Dialog
+The dialog has two tabs:
 
-#### Login (`/api/auth/login`)
-- POST endpoint for user login
-- Returns JWT token stored in httpOnly cookie
-- Validates credentials and returns user info
+#### Tab 1: User Information
+- Edit username
+- Edit email
+- Edit location
+- Changes are validated (no duplicate usernames/emails)
 
-#### Register (`/api/auth/register`)
-- POST endpoint for user registration
-- **Admin-only access** - only admins can register new users
-- Allows setting admin flag when creating users
-- Validates unique username/email
+#### Tab 2: Permissions & Role
+- Toggle "Approver User" checkbox
+- Assign 6 granular permissions:
+  - Can Register Items
+  - Can Issue Items
+  - Can Manage Locations
+  - Can Manage Categories
+  - Can Approve Items
+  - Can View Reports
 
-#### Logout (`/api/auth/logout`)
-- POST endpoint to clear authentication cookie
-
-#### Me (`/api/auth/me`)
-- GET endpoint to fetch current logged-in user
-- Used for auth verification
-
-### 3. Authentication Utilities (`lib/auth.ts`)
-- `verifyAuth()` - Verifies JWT token from request
-- `getTokenFromRequest()` - Extracts token from cookies
-
-### 4. Pages
-
-#### Login Page (`/app/auth/login`)
-- Clean login form with username and password
-- Password visibility toggle
-- Error handling and loading states
-- Redirects to dashboard on successful login
-
-#### User Registration Page (`/app/auth/register`)
-- **Admin-only access** - redirects non-admins to dashboard
-- Register new users with username, email, password
-- Admin checkbox to grant admin privileges
+### 3. Delete User Functionality
+- Confirmation dialog before deletion
+- Prevents deleting the current admin user
+- Shows username in confirmation message
 - Success/error notifications
-- Form validation
 
-#### Home Page (`/app/page.tsx`)
-- Redirects authenticated users to `/dashboard`
-- Redirects unauthenticated users to `/auth/login`
+### 4. API Endpoints (`/api/admin/users`)
 
-#### Dashboard (`/app/dashboard/page.tsx`)
-- Main dashboard with inventory overview
-- Auth check on load
-- Stats, recent items, recent issues, expiry alerts
+#### GET
+- Fetches all users (admin only)
+- Returns user data without passwords
 
-### 5. Updated Sidebar (`/app/components/Sidebar.tsx`)
-- Displays current logged-in user
-- User avatar with first letter
-- Shows admin/user role
-- User menu with:
-  - Register User button (admin-only)
-  - Logout button
-- Clickable user profile section
+#### PUT
+- Updates user information (username, email, location)
+- Updates permissions
+- Updates approver status
+- Validates duplicate usernames/emails
+- Admin-only access
 
-### 6. Updated Data Models
+#### DELETE
+- Deletes a user by ID
+- Prevents self-deletion
+- Admin-only access
 
-#### Item Model (`lib/models/Item.ts`)
-- Added `recordedByUserId` field to track which user created the item
-- Keeps existing `recordedBy` field for backward compatibility
+## User Interface
 
-#### IssuedItem Model (`lib/models/IssuedItem.ts`)
-- Added `issuedByUserId` field to track who issued the item
-- Added `approvedByUserId` field to track who approved
-- Keeps existing string fields for backward compatibility
+### Statistics Cards
+- Total Users (blue)
+- Admins (dark blue)
+- Approvers (medium blue)
+- Regular Users (light blue)
 
-## Environment Variables
+### User Table Columns
+1. Username
+2. Email
+3. Location
+4. Role (Admin/Approver/User badges)
+5. Permissions (chips showing assigned permissions)
+6. Actions (Edit/Delete buttons)
 
-Add to `.env.local`:
-```
-MONGODB_URI=mongodb://localhost:27017/Inventory
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-```
+### Dialogs
+- **Edit Dialog**: Two-tab interface for editing user info or permissions
+- **Delete Dialog**: Confirmation with username display
 
-## Dependencies Added
+## Permission-Based Access
+- Only admins can access the user management page
+- Menu items are filtered based on user permissions
+- Sidebar shows/hides items based on user's assigned permissions
 
-```json
-{
-  "bcryptjs": "^2.4.3",
-  "jsonwebtoken": "^9.1.2",
-  "@types/jsonwebtoken": "^9.0.7"
-}
-```
+## Error Handling
+- Duplicate username/email validation
+- User not found errors
+- Authorization checks
+- Network error handling
+- User-friendly error messages
 
-Run `npm install` to install new dependencies.
+## Success Notifications
+- User information updated successfully
+- User permissions updated successfully
+- User deleted successfully
 
-## Flow
+## Technical Details
 
-1. **First Time Setup**
-   - Create first admin user directly in MongoDB
-   - Or modify register endpoint temporarily to allow first user creation
+### State Management
+- `users`: All users from database
+- `filteredUsers`: Users matching search term
+- `selectedUser`: Currently selected user for editing
+- `editMode`: Toggle between edit info and permissions tabs
+- `deleteDialogOpen`: Delete confirmation dialog state
+- `userToDelete`: User selected for deletion
+- `permissions`: Current permission state
+- `isApprover`: Current approver status
 
-2. **User Login**
-   - User goes to `/auth/login`
-   - Enters credentials
-   - JWT token stored in httpOnly cookie
-   - Redirected to `/dashboard`
+### Validation
+- Username uniqueness (excluding current user)
+- Email uniqueness (excluding current user)
+- Admin-only access checks
+- Self-deletion prevention
 
-3. **Admin User Registration**
-   - Admin goes to `/auth/register`
-   - Fills user details
-   - Can check "Admin User" checkbox
-   - New user created and can login
+## Files Modified
+- `app/admin/users/page.tsx` - User management page with edit and delete dialogs
+- `app/api/admin/users/route.ts` - API endpoints for user management
+- `lib/models/User.ts` - User model with permissions schema
 
-4. **Regular User**
-   - Cannot access `/auth/register`
-   - Can only use inventory features
-   - All actions tracked with their user ID
-
-## Security Features
-
-- Passwords hashed with bcryptjs (10 salt rounds)
-- JWT tokens in httpOnly cookies (secure, not accessible via JS)
-- Admin-only registration endpoint
-- Auth verification on protected routes
-- Token expiration (7 days)
-
-## Next Steps
-
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Create first admin user**
-   ```bash
-   npm run create-admin
-   ```
-   
-   Or with custom credentials:
-   ```bash
-   npm run create-admin -- username email password
-   ```
-   
-   Example:
-   ```bash
-   npm run create-admin -- admin admin@company.com MySecurePassword123
-   ```
-
-3. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-4. **Login**
-   - Go to `http://localhost:3000`
-   - You'll be redirected to `/auth/login`
-   - Use the admin credentials you created
-   - You'll be redirected to `/dashboard`
-
-5. **Register more users**
-   - Click on your user profile in the sidebar
-   - Click "Register User"
-   - Fill in user details
-   - Check "Admin User" if you want to make them an admin
-   - Click "Register User"
-
-6. **Update item/issue creation endpoints**
-   - Modify `/api/items/route.ts` to capture `recordedByUserId` from auth
-   - Modify `/api/issues/route.ts` to capture `issuedByUserId` from auth
-   - This will automatically track who created/issued items
+## Testing Checklist
+- [x] View all users in table
+- [x] Search users by username, email, or location
+- [x] Edit user information (username, email, location)
+- [x] Edit user permissions
+- [x] Toggle approver status
+- [x] Delete user with confirmation
+- [x] Prevent self-deletion
+- [x] Validate duplicate usernames/emails
+- [x] Show success/error messages
+- [x] Admin-only access control

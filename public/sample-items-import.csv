@@ -1,0 +1,11 @@
+itemname,category,quantity,unitprice,unitmeasurement,description,suppliername,purchasedate,purchaseprice,warehousename,expirydate,recordedby
+Surgical Gloves,OR/Ward/PACU Supplies,100,5.50,Box,Sterile latex gloves size M,Medical Supplies Inc,2026-01-15,4.00,Addis Ababa,2027-01-15,Admin
+Oxygen Tank,Emergency Items,50,150.00,Piece,Medical oxygen tank 10L,Gas Supplies Ltd,2026-01-10,120.00,Cairo,2028-01-10,Admin
+Stethoscope,Medical Equipment,25,45.00,Piece,Digital stethoscope with display,Health Devices,2026-01-12,35.00,Dubai,2029-01-12,Admin
+Anxiety Medication,MH Items,200,2.50,Tablet,Anxiety relief tablets,Pharma Corp,2026-01-08,1.80,Nairobi,2027-06-08,Admin
+Dental Drill,Dental Supplies,10,250.00,Piece,High-speed dental drill,Dental Equipment Co,2026-01-05,200.00,Lagos,2031-01-05,Admin
+Team First Aid Kit,Team Kit,30,35.00,Set,Complete first aid kit,Safety Plus,2026-01-20,25.00,Johannesburg,2027-01-20,Admin
+Nutritional Supplement,Nutrition Supplies,150,8.00,Bottle,Vitamin supplement 500ml,Nutrition Labs,2026-01-18,6.00,Addis Ababa,2027-01-18,Admin
+Speech Therapy Cards,Speech Supplies,20,15.00,Set,Speech therapy flashcard set,Education Plus,2026-01-22,12.00,Cairo,2028-01-22,Admin
+Emergency Bandages,Emergency Items,500,0.50,Pack,Sterile bandage pack,Medical Supplies Inc,2026-01-14,0.35,Dubai,2027-01-14,Admin
+Wheelchair,Medical Equipment,5,800.00,Piece,Manual wheelchair standard,Health Devices,2026-01-09,650.00,Nairobi,2030-01-09,Admin

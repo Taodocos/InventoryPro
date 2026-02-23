@@ -39,3 +39,34 @@ export async function PUT(
     return NextResponse.json({ error: error.message || 'Failed to update issued item' }, { status: 500 });
   }
 }
+
+// DELETE issued item
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await dbConnect();
+    const { id } = await params;
+    
+    const issuedItem = await IssuedItem.findById(id);
+    if (!issuedItem) {
+      return NextResponse.json({ error: 'Issued item not found' }, { status: 404 });
+    }
+
+    // Check if item is pending (only pending items can be deleted)
+    if (issuedItem.approvalStatus !== 'Pending') {
+      return NextResponse.json(
+        { error: 'Only pending items can be deleted' },
+        { status: 400 }
+      );
+    }
+
+    // Delete the issued item
+    await IssuedItem.findByIdAndDelete(id);
+    
+    return NextResponse.json({ message: 'Issued item deleted successfully' });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Failed to delete issued item' }, { status: 500 });
+  }
+}
